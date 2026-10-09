@@ -1,5 +1,4 @@
- 
-# Arquivo: .github/workflows/build-apk-leve.yml  (no SEU fork do Ikemen-GO)
+ # Arquivo: .github/workflows/build-apk-leve.yml  (no SEU fork do Ikemen-GO)
 # Gera APK ARM32 (armeabi-v7a) com padroes leves para celular fraco (J4+).
 name: Build APK leve ARM32 (J4+)
 
@@ -59,6 +58,8 @@ jobs:
           sub(r'"\$TOOLCHAIN/bin/\$\{arch\}-linux-android\$\{api_level\}-clang"',
               '"$TOOLCHAIN/bin/armv7a-linux-androideabi${api_level}-clang"', 1)
           sub(r'arm64-v8a', 'armeabi-v7a', 3)
+          # libvpx ARM32: o assembler NEON antigo (.asm.S) falha com o clang do NDK; usa so intrinsics NEON em C
+          sub(r'"--disable-webm-io"', '"--disable-webm-io"\n\t\t"--disable-neon-asm"', 1)
           GRADLE = ('\tfind "$ANDROID_APK_DIR" -type f \\( -name "build.gradle" -o -name "build.gradle.kts" '
                     '-o -name "gradle.properties" \\) -exec sed -i "s/arm64-v8a/armeabi-v7a/g" {} +\n')
           s, n = re.subn(r'(\n\tsync_android_apk_repo\n)', lambda m: m.group(1) + GRADLE, s)
@@ -91,3 +92,4 @@ jobs:
           path: |
             bin/ikemen-go.apk
             bin/libmain.so
+
