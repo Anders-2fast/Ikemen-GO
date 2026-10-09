@@ -1,4 +1,7 @@
-name: Build APK leve (J4+)
+ 
+# Arquivo: .github/workflows/build-apk-leve.yml  (no SEU fork do Ikemen-GO)
+# Gera APK ARM32 (armeabi-v7a) com padroes leves para celular fraco (J4+).
+name: Build APK leve ARM32 (J4+)
 
 on:
   workflow_dispatch:
@@ -6,7 +9,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
 
@@ -15,36 +18,76 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL
           df -h /
 
-      - name: Patch dos defaults
+      # 1) Padroes de config: 640x360, sem zoom, sem filtro (opcional, nao derruba o build)
+      - name: Patch dos defaults do config (opcional)
         run: |
-          FILES=$(grep -rlE "GameWidth\s*=\s*0?960" . 2>/dev/null | grep -v '^./.git/' || true)
+          FILES=$(grep -rlE "^[[:space:]]*GameWidth[[:space:]]*=" --include="*.ini" . 2>/dev/null | grep -v '^./.git/' || true)
           echo "Arquivos encontrados:"; echo "$FILES"
-          [ -n "$FILES" ] || { echo "ERRO: defaults nao encontrados"; exit 1; }
+          if [ -z "$FILES" ]; then
+            echo "AVISO: defaults nao encontrados, seguindo sem esse patch"
+            exit 0
+          fi
           for f in $FILES; do
             sed -i -E \
-              -e 's/^(\s*GameWidth\s*=\s*)0?960/\10640/' \
-              -e 's/^(\s*GameHeight\s*=\s*)540/\1360/' \
-              -e 's/^(\s*WindowScaleMode\s*=\s*)1/\10/' \
-              -e 's/^(\s*ZoomActive\s*=\s*)1/\10/' \
+              -e 's/^([[:space:]]*GameWidth[[:space:]]*=[[:space:]]*)[0-9]+/\1640/' \
+              -e 's/^([[:space:]]*GameHeight[[:space:]]*=[[:space:]]*)[0-9]+/\1360/' \
+              -e 's/^([[:space:]]*WindowScaleMode[[:space:]]*=[[:space:]]*)[0-9]+/\10/' \
+              -e 's/^([[:space:]]*ZoomActive[[:space:]]*=[[:space:]]*)[0-9]+/\10/' \
               "$f"
           done
           git --no-pager diff --stat
 
-      - name: Build APK
-        env:
-          APP_VERSION: leve-j4plus
+      # 2) Troca arm64 -> ARM32 em todo o build.sh (falha se algo nao for achado)
+      - name: Patch ARM32 no build.sh
         run: |
-          docker compose -f build/docker/android/docker-compose.yml build
-          docker compose -f build/docker/android/docker-compose.yml run --rm android-build
+          python3 - <<'PY'
+          import re, sys
+          p = "build/build.sh"
+          s = open(p, encoding="utf-8").read()
 
-      - name: Mostrar ABIs
+          def sub(pattern, repl, expected):
+              global s
+              s, n = re.subn(pattern, repl, s)
+              if n != expected:
+                  sys.exit("ERRO: padrao %r achou %d vez(es), esperado %d" % (pattern, n, expected))
+
+          sub(r'(export GOOS=android\s+)export GOARCH=arm64', r'\1export GOARCH=arm\n\texport GOARM=7', 1)
+          sub(r'aarch64-linux-android34', 'armv7a-linux-androideabi34', 1)
+          sub(r'(\n\s*)android/arm64\) target="arm64-android-gcc" ;;',
+              r'\1android/arm64) target="arm64-android-gcc" ;;\1android/arm) target="armv7-android-gcc" ;;', 1)
+          sub(r'local arch="aarch64"', 'local arch="arm"', 1)
+          sub(r'"\$TOOLCHAIN/bin/\$\{arch\}-linux-android\$\{api_level\}-clang"',
+              '"$TOOLCHAIN/bin/armv7a-linux-androideabi${api_level}-clang"', 1)
+          sub(r'arm64-v8a', 'armeabi-v7a', 3)
+          GRADLE = ('\tfind "$ANDROID_APK_DIR" -type f \\( -name "build.gradle" -o -name "build.gradle.kts" '
+                    '-o -name "gradle.properties" \\) -exec sed -i "s/arm64-v8a/armeabi-v7a/g" {} +\n')
+          s, n = re.subn(r'(\n\tsync_android_apk_repo\n)', lambda m: m.group(1) + GRADLE, s)
+          if n != 1:
+              sys.exit("ERRO: chamada sync_android_apk_repo achou %d vez(es)" % n)
+          open(p, "w", encoding="utf-8").write(s)
+          print("build.sh ajustado para ARM32")
+          PY
+          git --no-pager diff build/build.sh
+
+      - name: Build APK (Docker oficial)
+        env:
+          APP_VERSION: leve-j4plus-arm32
+        run: |
+          chmod +x build/build_android.sh
+          ./build/build_android.sh
+
+      # 3) Confere se saiu 32 bits de verdade
+      - name: Verificar ARM32
         run: |
           ls -la bin/ || true
-          unzip -l bin/ikemen-go.apk | grep -E "lib/.*/libmain.so" || true
+          file bin/libmain.so
+          file bin/libmain.so | grep -q "ELF 32-bit" || { echo "ERRO: libmain.so nao e 32 bits"; exit 1; }
+          unzip -l bin/ikemen-go.apk | grep -E "lib/.*\.so" || true
+          unzip -l bin/ikemen-go.apk | grep -q "lib/armeabi-v7a/libmain.so" || { echo "ERRO: APK sem armeabi-v7a"; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ikemen-go-leve
+          name: ikemen-go-leve-arm32
           path: |
             bin/ikemen-go.apk
             bin/libmain.so
