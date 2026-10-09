@@ -1,0 +1,56 @@
+# Coloque em: .github/workflows/build-apk-leve.yml  (no SEU fork do Ikemen-GO)
+# Gera o APK Android via o build oficial em Docker (documentado no BUILDING.md)
+# aplicando antes um patch nos valores PADRÃO do config (celulares fracos).
+name: Build APK leve (J4+)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      # Libera espaço em disco (o build compila FFmpeg, SDL2 etc.)
+      - name: Liberar disco
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      # Troca os defaults do config. Falha de forma visível se não achar nada.
+      - name: Patch dos defaults (resolução 640x360, sem zoom, sem filtro)
+        run: |
+          FILES=$(grep -rlE "GameWidth\s*=\s*0?960" --include="*" . 2>/dev/null | grep -v '^./.git/' || true)
+          echo "Arquivos encontrados:"; echo "$FILES"
+          [ -n "$FILES" ] || { echo "ERRO: defaults não encontrados, veja o repo e ajuste o patch"; exit 1; }
+          for f in $FILES; do
+            sed -i -E \
+              -e 's/^(\s*GameWidth\s*=\s*)0?960/\10640/' \
+              -e 's/^(\s*GameHeight\s*=\s*)540/\1360/' \
+              -e 's/^(\s*WindowScaleMode\s*=\s*)1/\10/' \
+              -e 's/^(\s*ZoomActive\s*=\s*)1/\10/' \
+              "$f"
+          done
+          git --no-pager diff --stat
+          git --no-pager diff | head -80
+
+      - name: Build APK (Docker oficial)
+        env:
+          APP_VERSION: leve-j4plus
+        run: |
+          docker compose -f build/docker/android/docker-compose.yml build
+          docker compose -f build/docker/android/docker-compose.yml run --rm android-build
+
+      - name: Mostrar ABIs geradas
+        run: |
+          ls -la bin/ || true
+          unzip -l bin/ikemen-go.apk | grep -E "lib/.*/libmain.so" || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ikemen-go-leve
+          path: |
+            bin/ikemen-go.apk
+            bin/libmain.so
