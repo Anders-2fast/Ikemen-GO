@@ -98,20 +98,19 @@ jobs:
 
       - name: Diagnostico do codigo (Vulkan)
         run: |
-          echo "=== cabecalho dos arquivos vk/kinc ==="
-          for f in src/*vk*.go src/*kinc*.go; do
-            [ -f "$f" ] && { echo "--- $f"; head -8 "$f"; }
-          done
-          echo "=== todas as linhas go:build em src ==="
-          grep -n "^//go:build" src/*.go || true
-          echo "=== usos de Renderer_VK fora do render_vk.go ==="
-          grep -n "Renderer_VK" src/*.go | grep -v "^src/render_vk.go" | head -40 || true
-          echo "=== trecho do render_vk.go (linhas 75-90) ==="
-          sed -n 75,90p src/render_vk.go || true
-          echo "=== flags/tags do build.sh ==="
-          grep -n "tags\|ensure_go_flags_android\|go build" build/build.sh | head -40 || true
-          echo "=== arquivos *.go de src ==="
-          ls src/*.go | tr '\n' ' '
+          echo "=== util_android.go (130-190) ==="
+          sed -n 130,190p src/util_android.go || true
+          echo "=== system_sdl.go (395-430) ==="
+          sed -n 395,430p src/system_sdl.go || true
+          echo "=== declaracao de gfx/gfxFont e interfaces ==="
+          grep -nE "^var .*(gfx|gfxFont)|^\s+(gfx|gfxFont)\s+(Renderer|Font|interface)|type (Renderer|FontRenderer|Font|Texture|Shader) interface" src/*.go | head -20 || true
+          echo "=== usos de vk/Vulkan fora dos 3 arquivos vk ==="
+          grep -nE "\bvk\.|_VK|vulkan|Vulkan" src/*.go | grep -vE "^src/(render_vk|font_vk|render_vk_swap)\.go" | head -60 || true
+          echo "=== build.sh: flags android e go build ==="
+          sed -n 29,60p build/build.sh || true
+          sed -n 1630,1637p build/build.sh || true
+          echo "=== go.mod: vulkan ==="
+          grep -n -i "vulkan" go.mod || true
 
       - name: Build APK (Docker oficial)
         env:
@@ -135,3 +134,4 @@ jobs:
           path: |
             bin/ikemen-go.apk
             bin/libmain.so
+
