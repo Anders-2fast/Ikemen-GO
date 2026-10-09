@@ -1,4 +1,4 @@
- # Arquivo: .github/workflows/build-apk-leve.yml  (no SEU fork do Ikemen-GO)
+# Arquivo: .github/workflows/build-apk-leve.yml  (no SEU fork do Ikemen-GO)
 # Gera APK ARM32 (armeabi-v7a) com padroes leves para celular fraco (J4+).
 name: Build APK leve ARM32 (J4+)
 
@@ -60,6 +60,34 @@ jobs:
           sub(r'arm64-v8a', 'armeabi-v7a', 3)
           # libvpx ARM32: o assembler NEON antigo (.asm.S) falha com o clang do NDK; usa so intrinsics NEON em C
           sub(r'"--disable-webm-io"', '"--disable-webm-io"\n\t\t"--disable-neon-asm"', 1)
+          # Go 32 bits: o pacote reisen usa C.ulong/C.long onde o FFmpeg espera size_t/int64_t
+          REISEN = r"""function patch_reisen_android() {
+              [[ "$GOOS" != "android" ]] && return 0
+              local dir
+              dir="$(go list -m -f '{{.Dir}}' github.com/ikemen-engine/reisen 2>/dev/null || true)"
+              if [[ -z "$dir" || ! -d "$dir" ]]; then
+                  echo "ERRO: modulo reisen nao encontrado" >&2
+                  exit 1
+              fi
+              chmod -R u+w "$dir" || true
+              echo "==> reisen: definicoes antes do patch"
+              grep -rnE "(bufferSize|rewindPosition)[[:space:]]*=?[[:space:]]*C\." "$dir" --include=*.go || true
+              find "$dir" -name '*.go' -exec sed -i -E \
+                  -e 's/\b(bufferSize)([[:space:]]*=[[:space:]]*|[[:space:]]+)C\.(ulong|uint|ulonglong)\b/\1\2C.size_t/' \
+                  -e 's/\b(rewindPosition)([[:space:]]*=[[:space:]]*|[[:space:]]+)C\.(long|longlong)\b/\1\2C.int64_t/' {} +
+              echo "==> reisen: definicoes depois do patch"
+              grep -rnE "(bufferSize|rewindPosition)[[:space:]]*=?[[:space:]]*C\." "$dir" --include=*.go || true
+              grep -rqE "bufferSize[[:space:]]*=?[[:space:]]*C\.size_t" "$dir" --include=*.go || { echo "ERRO: bufferSize nao ajustado" >&2; exit 1; }
+              grep -rqE "rewindPosition[[:space:]]*=?[[:space:]]*C\.int64_t" "$dir" --include=*.go || { echo "ERRO: rewindPosition nao ajustado" >&2; exit 1; }
+          }
+
+          """
+          s, n = re.subn(r'\nfunction build\(\) \{', lambda m: '\n' + REISEN + 'function build() {', s)
+          if n != 1:
+              sys.exit('ERRO: function build() achou %d vez(es)' % n)
+          s, n = re.subn(r'(\n[ \t]*)patch_go_sdl2_android\n', lambda m: m.group(1) + 'patch_go_sdl2_android' + m.group(1) + 'patch_reisen_android\n', s)
+          if n != 1:
+              sys.exit('ERRO: chamada patch_go_sdl2_android achou %d vez(es)' % n)
           GRADLE = ('\tfind "$ANDROID_APK_DIR" -type f \\( -name "build.gradle" -o -name "build.gradle.kts" '
                     '-o -name "gradle.properties" \\) -exec sed -i "s/arm64-v8a/armeabi-v7a/g" {} +\n')
           s, n = re.subn(r'(\n\tsync_android_apk_repo\n)', lambda m: m.group(1) + GRADLE, s)
@@ -92,4 +120,3 @@ jobs:
           path: |
             bin/ikemen-go.apk
             bin/libmain.so
-
