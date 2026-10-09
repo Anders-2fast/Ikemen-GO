@@ -72,11 +72,11 @@ jobs:
               chmod -R u+w "$dir" || true
               echo "==> reisen: platform_linux.go antes do patch"
               cat "$dir/platform_linux.go"
-              sed -i -E -e 's/\bC\.ulong\b/C.size_t/g' -e 's/\bC\.long\b/C.int64_t/g' "$dir/platform_linux.go"
+              sed -i -E -e 's/\bC\.ulong\b/C.size_t/g' -e 's/\bC\.long\b/C.longlong/g' "$dir/platform_linux.go"
               echo "==> reisen: platform_linux.go depois do patch"
               cat "$dir/platform_linux.go"
               grep -q "C\.size_t" "$dir/platform_linux.go" || { echo "ERRO: size_t nao aplicado" >&2; exit 1; }
-              grep -q "C\.int64_t" "$dir/platform_linux.go" || { echo "ERRO: int64_t nao aplicado" >&2; exit 1; }
+              grep -q "C\.longlong" "$dir/platform_linux.go" || { echo "ERRO: longlong nao aplicado" >&2; exit 1; }
           }
 
           """
@@ -118,4 +118,3 @@ jobs:
           path: |
             bin/ikemen-go.apk
             bin/libmain.so
-
