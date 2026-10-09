@@ -1,0 +1,50 @@
+name: Build APK leve (J4+)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Liberar disco
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Patch dos defaults
+        run: |
+          FILES=$(grep -rlE "GameWidth\s*=\s*0?960" . 2>/dev/null | grep -v '^./.git/' || true)
+          echo "Arquivos encontrados:"; echo "$FILES"
+          [ -n "$FILES" ] || { echo "ERRO: defaults nao encontrados"; exit 1; }
+          for f in $FILES; do
+            sed -i -E \
+              -e 's/^(\s*GameWidth\s*=\s*)0?960/\10640/' \
+              -e 's/^(\s*GameHeight\s*=\s*)540/\1360/' \
+              -e 's/^(\s*WindowScaleMode\s*=\s*)1/\10/' \
+              -e 's/^(\s*ZoomActive\s*=\s*)1/\10/' \
+              "$f"
+          done
+          git --no-pager diff --stat
+
+      - name: Build APK
+        env:
+          APP_VERSION: leve-j4plus
+        run: |
+          docker compose -f build/docker/android/docker-compose.yml build
+          docker compose -f build/docker/android/docker-compose.yml run --rm android-build
+
+      - name: Mostrar ABIs
+        run: |
+          ls -la bin/ || true
+          unzip -l bin/ikemen-go.apk | grep -E "lib/.*/libmain.so" || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ikemen-go-leve
+          path: |
+            bin/ikemen-go.apk
+            bin/libmain.so
